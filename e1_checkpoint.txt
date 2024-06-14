@@ -1,0 +1,170 @@
+{
+  "metadata": {
+    "kernelspec": {
+      "name": "node_nteract",
+      "language": "javascript",
+      "display_name": "Node.js (nteract)"
+    },
+    "kernel_info": {
+      "name": "node_nteract"
+    },
+    "language_info": {
+      "name": "javascript",
+      "version": "8.2.1",
+      "mimetype": "application/javascript",
+      "file_extension": ".js"
+    },
+    "title": "WepSIM ",
+    "nteract": {
+      "version": "nteract-on-jupyter@2.0.0"
+    }
+  },
+  "nbformat": 4,
+  "nbformat_minor": 0,
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "source": "## mode",
+      "metadata": {}
+    },
+    {
+      "cell_type": "code",
+      "source": "ep",
+      "outputs": [],
+      "execution_count": 1,
+      "metadata": {
+        "name": "mode",
+        "type": "string",
+        "collapsed": false,
+        "deletable": false,
+        "editable": false
+      }
+    },
+    {
+      "cell_type": "markdown",
+      "source": "## firmware",
+      "metadata": {}
+    },
+    {
+      "cell_type": "code",
+      "source": "#\n# WepSIM (https://wepsim.github.io/wepsim/)\n#\n\n\n#1st instruction\nlui reg val {\n            co = 010010,\n  \t\t\t\t\tnwords = 2,\n  \t\t\t\t\treg = reg(25, 21),\n  \t\t\t\t\tval = inm(63, 32),\n \t\t\t\t\t\thelp ='R1 <- u32',\n            {\n              # MAR <- PC\n              (T2, C0),\n              # PC <- PC+4, MBR<- MM[MAR]\n              (M2, C2, TA, R, BW=11, M1, C1),\n              # reg <- MBR, fetch\n\t\t\t\t\t\t\t(T1, SelC=10101, LC, A0, B, C=0)\n  \t\t\t\t\t\t\n            }\n}\n\n\n#2nd instruction\nsw reg1 (reg2) {\n\t    co=010000,\n\t    nwords=1,\n\t    reg1 = reg(25,21),\n\t    reg2 = reg(20,16),\n\t    help='MEM[rs1+offset+3 .. rs1+offset] = rs2',\n\t    { \n        # MBR <- reg2\n        (MR=0, SELB=10000, T10=1, C1=1)\n        # MAR <- reg1\n        (MR=0, SELA=10101, T9=1, C0=1)\n        # MM[MAR] <- MBR\n        (Ta=1, BW=11, SE=1, TD=1, W=1, A0=1, B=1, C=0)\n\t\t\t}\n}\n\n\n\n#3rd instruction\nlw reg1 (reg2) {\n\t    co=010011,\n\t    nwords=1,\n\t    reg1=reg(25,21),\n\t    reg2=reg(20,16),\n\t    help='reg1 <- MEM[reg2]',\n\t    {\n        # MAR <- reg2 \n\t\t\t\t(MR=0, SELA=10000, T9=1, C0=1),\n        # MBR <- MM[MAR]\n        (Ta=1, R=1, BW=11, SE=1, M1=1, C1=1),\n        # reg1 <- MBR\n        (T1=1, MR=0, SELC=10101, LC=1, A0=1, B=1, C=0)\n\t    }\n}\n\n\n#4th instruction\nadd reg1 reg2 reg3 {\n\t    co=011000,\n\t    nwords=1,\n\t    reg1=reg(25,21),\n\t    reg2=reg(20,16),\n\t    reg3=reg(15,11),\n\t    help='r1 = r2 + r3',\n\t    {\n        # reg3(SELA) + reg2(SLEB) _via ALU_ => RT3 -> reg1 \n        (MC=1, MR=0, SELA=01011, SELB=10000, MA=0, MB=0, SELCOP=1010, T6=1, SELC=10101, LC=1, SELP=11, M7, C7, A0=1, B=1, C=0),\n      }\n}\n\n\n#5th instruction\nmul_add reg1 reg2 reg3 reg4 {\n\t\t\t\tco=011001,\n        nwords=1,\n        reg1=reg(25,21),\n        reg2=reg(20,16),\n        reg3=reg(15,11),\n        reg4=reg(10,6),\n        help='r1 = r2*r3+r4',\n\t\t\t\t{\n          # Multiplication RT1<- (reg2*reg3)\n          (MC=1, MR=0, SELA=01011, SELB=10000, MA=0, MB=0, SELCOP=1100, T6=1, C4), \n          # Adittion reg1 <- (rt1+reg4)\n          (MC=1, MR=0, SELB=00110, MA=1, MB=0, SELCOP=1010, T6=1, SELC=10101, LC=1, SELP=11, M7, C7, A0=1, B=1, C=0)\n          # SELP=11, M7, C7, actulizan el SR, al usar la ALU\n        }\n\n}\n\n\n# 6th instruction (beq)\nbeq rs1 rs2 S10 {\n\t    co=110100,\n\t    nwords=1,\n\t    rs1=reg(25,21),\n\t    rs2=reg(20,16),\n\t    S10=address(9,0)rel,\n\t    help='if (rs1 == rs2) pc += offset',\n\t    {\n        # Save the content of the status register\n        (T8, C5),\n        # Substract the two values, SLECOP=1011(-) and with SELP=11 we get the auxiliar values from the ALU\n        (SELA=10101, SELB=10000, MC=1, SELCOP=1011, SELP=11, M7, C7),\n        # Compare if Z=0, if so, go to the next µinstruction, else, go to bck2ftch (back to fetch)\n        (A0=0, B=1, C=110, MADDR=bck2ftch),\n        # Restore the Status Register (SR)\n        (T5, M7=0, C7),\n        # Save in RT1 <- PC\n        (T2, C4),\n        # From the instruction get the ofset and store it in RT2\n        (SE=1, OFFSET=0, SIZE=1010, T3, C5),\n        # PC <- RT1(pc) + RT2(value) & fetch\n        (MA=1, MB=1, MC=1, SELCOP=1010, T6, C2, A0=1, B=1, C=0),\n        # Restore SR\n          bck2ftch: (T5, M7=0, C7),\n        # Fetch new instruction\n        (A0=1, B=1, C=0)\n\t\t}\n}\n\n\n# 7th instruction\njal offset {\n\t    co=100001,\n\t    nwords=1,\n\t    offset=address(15,0)rel,\n\t    help='rd = pc; pc = pc + offset',\n\t    {\n         # ra <- PC\n        (T2, MR=1, SelC=00001, LC),\n         # RT1 <- offset\n        (SE=1, OFFSET=0, SIZE=10100, T3, M2=0, C2=1, A0=1, B=1, C=0),        \n\t    }\n}\n\n# 8th instruction\n#jr_ra\njr_ra {\n\t\tco=100010,\n    nwords=1,\n    help='PC ← BR[ra]',\n      {\n    \t\t(MC=1, MR=1, SELA=00001, T9=1, M2=0, C2=1)\n    }\n}\n\n# 9th instruction\nhalt {\n\t \tco=100011,\n    nwords=1,\n    help='PC ← 0x00 & SR ← 0x00',\n    {\n      # register0 is a hard wired 0, so we can store that 0 in PC and SR at the same time\n      (MC=1, SELA=00000, T9, M2=0, C2=1, M7=0, C7=1, A0=1, B=1, C=0)\n  }\n}\n\n\n# 10th instruction\nxchb reg1 reg2 {\n\t  co=011010,\n    nwords=1;\n  \treg1=reg(25,21),\n    reg2=reg(20,16),\n    help='RT1 ← Memory[RRE1] Memory && Memory[RRE1] ← Memory [RRE2] && Memory [RRE2] ← RT1'\n  \t\t{\n          # RT1 <- MM[reg1]\n         # MAR <- reg1\n         (MR=0, SELA=10101, T9=1, C0=1)\n         # MBR <- MM[MAR]\n         (Ta=1, BW=0, SE=1, R=1, M1=1, C1=1)\n         # RT1 <- MBR\n         (T1=1, C4=1)\n\n         # MM[reg1] <- MM[reg2]\n        # MAR <- reg2\n        (MR=0, SELB=10000, T10=1, C0=1)\n        # MBR <- MM[MAR]\n        (Ta=1, BW=0, SE=1, R=1, M1=1, C1=1)\n        # MAR <- reg1\n        (MR=0, SELA=10101, T9=1, C0=1)\n        # MM[MAR] <- MBR\n        (TA=1, BW=0, SE=1, W=1, Td=1)\n\n         # MM[reg2] <- RT1\n        # MAR <- reg2\n        (MR=0, SELB=10000, T10=1, C0=1)\n        # MBR <- RT1\n        (T4=1, M1=0, C1=1)\n        # MM[MAR] <- MBR\n        (Ta=1, BW=0, SE=1, TD=1, W=1, A0=1, B=1, C=0)\n  }\n}\n\n",
+      "outputs": [],
+      "execution_count": 1,
+      "metadata": {
+        "name": "firmware",
+        "type": "string",
+        "collapsed": false,
+        "deletable": false,
+        "editable": false
+      }
+    },
+    {
+      "cell_type": "markdown",
+      "source": "## assembly",
+      "metadata": {}
+    },
+    {
+      "cell_type": "code",
+      "source": "",
+      "outputs": [],
+      "execution_count": 1,
+      "metadata": {
+        "name": "assembly",
+        "type": "string",
+        "collapsed": false,
+        "deletable": false,
+        "editable": false
+      }
+    },
+    {
+      "cell_type": "markdown",
+      "source": "## state_current",
+      "metadata": {}
+    },
+    {
+      "cell_type": "code",
+      "source": "{\n  \"time\": 1669482458978,\n  \"title\": \"clock 1 @ &#181;address 0\",\n  \"title_short\": \"clock 1,<br>&#181;add 0\",\n  \"content\": \"\"\n}",
+      "outputs": [],
+      "execution_count": 1,
+      "metadata": {
+        "name": "state_current",
+        "type": "object",
+        "collapsed": false,
+        "deletable": false,
+        "editable": false
+      }
+    },
+    {
+      "cell_type": "markdown",
+      "source": "## state_history",
+      "metadata": {}
+    },
+    {
+      "cell_type": "code",
+      "source": "[]",
+      "outputs": [],
+      "execution_count": 1,
+      "metadata": {
+        "name": "state_history",
+        "type": "object",
+        "collapsed": false,
+        "deletable": false,
+        "editable": false
+      }
+    },
+    {
+      "cell_type": "markdown",
+      "source": "## record",
+      "metadata": {}
+    },
+    {
+      "cell_type": "code",
+      "source": "[]",
+      "outputs": [],
+      "execution_count": 1,
+      "metadata": {
+        "name": "record",
+        "type": "object",
+        "collapsed": false,
+        "deletable": false,
+        "editable": false
+      }
+    },
+    {
+      "cell_type": "markdown",
+      "source": "## tag",
+      "metadata": {}
+    },
+    {
+      "cell_type": "code",
+      "source": "26/11/2022, 18:07:28",
+      "outputs": [],
+      "execution_count": 1,
+      "metadata": {
+        "name": "tag",
+        "type": "string",
+        "collapsed": false,
+        "deletable": false,
+        "editable": false
+      }
+    },
+    {
+      "cell_type": "markdown",
+      "source": "## notify",
+      "metadata": {}
+    },
+    {
+      "cell_type": "code",
+      "source": "true",
+      "outputs": [],
+      "execution_count": 1,
+      "metadata": {
+        "name": "notify",
+        "type": "boolean",
+        "collapsed": false,
+        "deletable": false,
+        "editable": false
+      }
+    }
+  ]
+}
